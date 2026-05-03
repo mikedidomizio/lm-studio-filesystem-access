@@ -131,10 +131,10 @@ export async function toolsProvider(ctl: ToolsProviderController) {
       if (!folderName || !existsSync(folderName)) {
         return "Error: Directory not set or does not exist";
       }
-      
+
       // Get file list
       const files = await readdir(folderName);
-      
+
       if (files.length === 0) {
         return "Directory is empty";
       }

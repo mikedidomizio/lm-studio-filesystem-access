@@ -1,3 +1,6 @@
 .DS_Store
 .lmstudio
 node_modules
+coverage
+.idea
+
