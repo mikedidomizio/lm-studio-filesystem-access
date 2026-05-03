@@ -159,6 +159,10 @@ async function collectRelativeFilesRecursive(baseDir: string, currentDir = ""): 
 export async function toolsProvider(ctl: ToolsProviderController) {
   const tools: Tool[] = [];
 
+  // =============
+  // FILE TOOLS
+  // =============
+
   // === WRITE FILE TOOL ===
   // Writes files to the configured directory
   const writeFileTool = tool({
@@ -265,178 +269,6 @@ export async function toolsProvider(ctl: ToolsProviderController) {
   });
   tools.push(readFileTool);
 
-  // === LIST FILES TOOL ===
-  // Lists all files in the configured directory
-  const listFilesTool = tool({
-    name: `list_files`,
-    description: "List all files in the configured directory.",
-    parameters: {},
-    implementation: async () => {
-      console.log("list_files tool called");
-      const operation = "list_files";
-      // Check if directory is set
-      const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
-      if (!folderName || !existsSync(folderName)) {
-        return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
-      }
-
-      try {
-        // Get file list
-        const files = (await readdir(folderName)).sort((a, b) => a.localeCompare(b));
-        return toSuccessResponse(operation, {
-          count: files.length,
-          files,
-        });
-      } catch {
-        return toErrorResponse(operation, "LIST_FAILED", "Failed to list files");
-      }
-    },
-  });
-  tools.push(listFilesTool);
-
-  // === PATH EXISTS TOOL ===
-  // Checks whether a path exists in the configured directory.
-  const pathExistsTool = tool({
-    name: `path_exists`,
-    description: "Check whether a path exists in the configured directory.",
-    parameters: {
-      path: z
-        .string()
-        .min(1, "Path cannot be empty")
-        .refine((value) => value.trim().length > 0, "Path cannot be empty"),
-    },
-    implementation: async ({ path }) => {
-      console.log("path_exists tool called with parameters:", { path });
-      const operation = "path_exists";
-      const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
-
-      if (!folderName || !existsSync(folderName)) {
-        return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
-      }
-
-      const fullPath = join(folderName, path);
-      if (!isPathWithinBaseDir(folderName, fullPath)) {
-        return toErrorResponse(operation, "PATH_OUTSIDE_BASE", "Path is outside the configured directory.");
-      }
-
-      if (!existsSync(fullPath)) {
-        return toSuccessResponse(operation, {
-          path: normalizeRelativePath(path),
-          exists: false,
-          path_type: "missing",
-        });
-      }
-
-      const pathStats = await stat(fullPath);
-      const pathType = pathStats.isDirectory() ? "directory" : "file";
-
-      return toSuccessResponse(operation, {
-        path: normalizeRelativePath(path),
-        exists: true,
-        path_type: pathType,
-      });
-    },
-  });
-  tools.push(pathExistsTool);
-
-  // === FIND FILE TOOL ===
-  // Recursively finds files by exact filename first, then a lax pattern fallback.
-  const findFileTool = tool({
-    name: `find_file`,
-    description: "Recursively search for files in the configured directory. Tries exact filename first, then a lax match if nothing is found.",
-    parameters: {
-      file_name: z
-        .string()
-        .min(1, "File name cannot be empty")
-        .refine((value) => value.trim().length > 0, "File name cannot be empty"),
-    },
-    implementation: async ({ file_name }) => {
-      console.log("find_file tool called with parameters:", { file_name });
-      const operation = "find_file";
-
-      const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
-      if (!folderName || !existsSync(folderName)) {
-        return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
-      }
-
-      const allFiles = (await collectRelativeFilesRecursive(folderName)).sort((a, b) => a.localeCompare(b));
-
-      if (allFiles.length === 0) {
-        return toSuccessResponse(operation, {
-          query: file_name,
-          match_type: "none",
-          count: 0,
-          matches: [],
-        });
-      }
-
-      const normalizedQuery = basename(file_name).toLowerCase();
-      const exactMatches = allFiles.filter((path) => basename(path).toLowerCase() === normalizedQuery);
-
-      if (exactMatches.length > 0) {
-        const matches: SearchMatch[] = exactMatches
-          .map((path) => ({
-            file_name: basename(path),
-            relative_path: path,
-            score: 1,
-          }))
-          .sort((a, b) => a.relative_path.localeCompare(b.relative_path));
-
-        return toSuccessResponse(operation, {
-          query: file_name,
-          match_type: "exact",
-          count: matches.length,
-          matches,
-        });
-      }
-
-      const tokens = tokenizeSearchQuery(file_name);
-      const laxRegex = buildLaxSearchRegex(tokens);
-      const laxMatches: SearchMatch[] = allFiles
-        .map((path) => {
-          const fileBaseName = basename(path);
-          if (!laxRegex.test(fileBaseName)) {
-            return null;
-          }
-
-          const score = scoreLaxMatch(fileBaseName, tokens);
-          if (score <= 0) {
-            return null;
-          }
-
-          return {
-            file_name: fileBaseName,
-            relative_path: path,
-            score,
-          };
-        })
-        .filter((match): match is SearchMatch => match !== null)
-        .sort((a, b) => {
-          if (b.score !== a.score) {
-            return b.score - a.score;
-          }
-          return a.relative_path.localeCompare(b.relative_path);
-        });
-
-      if (laxMatches.length === 0) {
-        return toSuccessResponse(operation, {
-          query: file_name,
-          match_type: "none",
-          count: 0,
-          matches: [],
-        });
-      }
-
-      return toSuccessResponse(operation, {
-        query: file_name,
-        match_type: "lax",
-        count: laxMatches.length,
-        matches: laxMatches,
-      });
-    },
-  });
-  tools.push(findFileTool);
-
   // === DELETE FILE TOOL ===
   // Deletes a file within the configured directory.
   const deleteFileTool = tool({
@@ -481,66 +313,6 @@ export async function toolsProvider(ctl: ToolsProviderController) {
     },
   });
   tools.push(deleteFileTool);
-
-  // === DELETE DIRECTORY TOOL ===
-  // Deletes a directory within the configured directory.
-  const deleteDirectoryTool = tool({
-    name: `delete_directory`,
-    description: "Delete a directory from the configured directory.",
-    parameters: {
-      directory_path: z
-        .string()
-        .min(1, "Directory path cannot be empty")
-        .refine((value) => value.trim().length > 0, "Directory path cannot be empty"),
-      recursive: z.boolean().optional(),
-    },
-    implementation: async ({ directory_path, recursive = false }) => {
-      console.log("delete_directory tool called with parameters:", { directory_path, recursive });
-      const operation = "delete_directory";
-      const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
-
-      if (!folderName || !existsSync(folderName)) {
-        return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
-      }
-
-      const fullPath = join(folderName, directory_path);
-      if (!isPathWithinBaseDir(folderName, fullPath)) {
-        return toErrorResponse(operation, "DIRECTORY_PATH_OUTSIDE_BASE", "Directory path is outside the configured directory.");
-      }
-
-      if (!existsSync(fullPath)) {
-        return toErrorResponse(operation, "DIRECTORY_NOT_FOUND", "Directory does not exist");
-      }
-
-      const pathStats = await stat(fullPath);
-      if (!pathStats.isDirectory()) {
-        return toErrorResponse(operation, "DIRECTORY_NOT_DIRECTORY", "Path is not a directory");
-      }
-
-      try {
-        if (recursive) {
-          await rm(fullPath, { recursive: true, force: false });
-        } else {
-          await rmdir(fullPath);
-        }
-      } catch (error) {
-        const errorCode = (error as NodeJS.ErrnoException).code;
-        if (errorCode === "ENOTEMPTY" || errorCode === "EEXIST") {
-          return toErrorResponse(operation, "DIRECTORY_NOT_EMPTY", "Directory is not empty; set recursive to true to delete it");
-        }
-
-        return toErrorResponse(operation, "DELETE_FAILED", "Failed to delete directory");
-      }
-
-      return toSuccessResponse(operation, {
-        directory_name: basename(directory_path),
-        relative_path: normalizeRelativePath(directory_path),
-        deleted: true,
-        recursive,
-      });
-    },
-  });
-  tools.push(deleteDirectoryTool);
 
   // === COPY FILE TOOL ===
   // Copies a file within the configured directory.
@@ -625,6 +397,201 @@ export async function toolsProvider(ctl: ToolsProviderController) {
     },
   });
   tools.push(copyFileTool);
+
+  // === MOVE FILE TOOL ===
+  // Moves a file within the configured directory.
+  const moveFileTool = tool({
+    name: `move_file`,
+    description: "Move a file to a new path within the configured directory.",
+    parameters: {
+      source_path: z
+        .string()
+        .min(1, "Source path cannot be empty")
+        .refine((value) => value.trim().length > 0, "Source path cannot be empty"),
+      destination_path: z
+        .string()
+        .min(1, "Destination path cannot be empty")
+        .refine((value) => value.trim().length > 0, "Destination path cannot be empty"),
+      overwrite: z.boolean().optional(),
+    },
+    implementation: async ({ source_path, destination_path, overwrite = false }) => {
+      console.log("move_file tool called with parameters:", { source_path, destination_path, overwrite });
+      const operation = "move_file";
+      const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
+
+      if (!folderName || !existsSync(folderName)) {
+        return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
+      }
+
+      const sourceFullPath = join(folderName, source_path);
+      const destinationFullPath = join(folderName, destination_path);
+
+      if (!isPathWithinBaseDir(folderName, sourceFullPath)) {
+        return toErrorResponse(operation, "SOURCE_PATH_OUTSIDE_BASE", "Source path is outside the configured directory.");
+      }
+
+      if (!isPathWithinBaseDir(folderName, destinationFullPath)) {
+        return toErrorResponse(operation, "DESTINATION_PATH_OUTSIDE_BASE", "Destination path is outside the configured directory.");
+      }
+
+      if (resolve(sourceFullPath) === resolve(destinationFullPath)) {
+        return toErrorResponse(operation, "SOURCE_EQUALS_DESTINATION", "Source and destination paths must be different.");
+      }
+
+      if (!existsSync(sourceFullPath)) {
+        return toErrorResponse(operation, "SOURCE_FILE_NOT_FOUND", "Source file does not exist");
+      }
+
+      const sourceStats = await stat(sourceFullPath);
+      if (!sourceStats.isFile()) {
+        return toErrorResponse(operation, "SOURCE_NOT_FILE", "Source path is not a file");
+      }
+
+      const destinationExists = existsSync(destinationFullPath);
+      if (destinationExists) {
+        const destinationStats = await stat(destinationFullPath);
+        if (destinationStats.isDirectory()) {
+          return toErrorResponse(operation, "DESTINATION_IS_DIRECTORY", "Destination path points to a directory");
+        }
+
+        if (!overwrite) {
+          return toErrorResponse(operation, "DESTINATION_EXISTS", "Destination file already exists");
+        }
+
+        await unlink(destinationFullPath);
+      }
+
+      const destinationDir = dirname(destinationFullPath);
+      if (!existsSync(destinationDir)) {
+        await mkdir(destinationDir, { recursive: true });
+      }
+
+      try {
+        await rename(sourceFullPath, destinationFullPath);
+      } catch (error) {
+        const errorCode = (error as NodeJS.ErrnoException).code;
+        if (errorCode === "EXDEV") {
+          return toErrorResponse(operation, "CROSS_DEVICE_MOVE_UNSUPPORTED", "Cannot move file across different filesystems");
+        }
+
+        return toErrorResponse(operation, "MOVE_FAILED", "Failed to move file");
+      }
+
+      return toSuccessResponse(operation, {
+        source_path: normalizeRelativePath(source_path),
+        destination_path: normalizeRelativePath(destination_path),
+        moved: true,
+        overwritten: destinationExists && overwrite,
+      });
+    },
+  });
+  tools.push(moveFileTool);
+
+  // ===================
+  // DIRECTORY TOOLS
+  // ===================
+
+  // === CREATE DIRECTORY TOOL ===
+  // Creates a subdirectory within the configured directory
+  const createDirectoryTool = tool({
+    name: `create_directory`,
+    description: "Create a new subdirectory within the configured directory.",
+    parameters: {
+      directory_name: z
+        .string()
+        .min(1, "Directory name cannot be empty")
+        .refine((value) => value.trim().length > 0, "Directory name cannot be empty")
+    },
+    implementation: async ({ directory_name }) => {
+      console.log("create_directory tool called with parameters:", { directory_name });
+      const operation = "create_directory";
+      // Check if directory is set
+      const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
+      if (!folderName) {
+        return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
+      }
+
+      // Validate that the directory path is within the configured directory
+      const fullPath = join(folderName, directory_name);
+
+      // Security check: ensure the path is within the configured directory
+      if (!isPathWithinBaseDir(folderName, fullPath)) {
+        return toErrorResponse(operation, "DIRECTORY_PATH_OUTSIDE_BASE", "Directory path is outside the configured directory.");
+      }
+
+      const directoryAlreadyExists = existsSync(fullPath);
+
+      // Create directory
+      await mkdir(fullPath, { recursive: true });
+
+      return toSuccessResponse(operation, {
+        directory_name: basename(directory_name),
+        relative_path: normalizeRelativePath(directory_name),
+        created: !directoryAlreadyExists,
+      });
+    },
+  });
+  tools.push(createDirectoryTool);
+
+  // === DELETE DIRECTORY TOOL ===
+  // Deletes a directory within the configured directory.
+  const deleteDirectoryTool = tool({
+    name: `delete_directory`,
+    description: "Delete a directory from the configured directory.",
+    parameters: {
+      directory_path: z
+        .string()
+        .min(1, "Directory path cannot be empty")
+        .refine((value) => value.trim().length > 0, "Directory path cannot be empty"),
+      recursive: z.boolean().optional(),
+    },
+    implementation: async ({ directory_path, recursive = false }) => {
+      console.log("delete_directory tool called with parameters:", { directory_path, recursive });
+      const operation = "delete_directory";
+      const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
+
+      if (!folderName || !existsSync(folderName)) {
+        return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
+      }
+
+      const fullPath = join(folderName, directory_path);
+      if (!isPathWithinBaseDir(folderName, fullPath)) {
+        return toErrorResponse(operation, "DIRECTORY_PATH_OUTSIDE_BASE", "Directory path is outside the configured directory.");
+      }
+
+      if (!existsSync(fullPath)) {
+        return toErrorResponse(operation, "DIRECTORY_NOT_FOUND", "Directory does not exist");
+      }
+
+      const pathStats = await stat(fullPath);
+      if (!pathStats.isDirectory()) {
+        return toErrorResponse(operation, "DIRECTORY_NOT_DIRECTORY", "Path is not a directory");
+      }
+
+      try {
+        if (recursive) {
+          await rm(fullPath, { recursive: true, force: false });
+        } else {
+          await rmdir(fullPath);
+        }
+      } catch (error) {
+        const errorCode = (error as NodeJS.ErrnoException).code;
+        if (errorCode === "ENOTEMPTY" || errorCode === "EEXIST") {
+          return toErrorResponse(operation, "DIRECTORY_NOT_EMPTY", "Directory is not empty; set recursive to true to delete it");
+        }
+
+        return toErrorResponse(operation, "DELETE_FAILED", "Failed to delete directory");
+      }
+
+      return toSuccessResponse(operation, {
+        directory_name: basename(directory_path),
+        relative_path: normalizeRelativePath(directory_path),
+        deleted: true,
+        recursive,
+      });
+    },
+  });
+  tools.push(deleteDirectoryTool);
 
   // === COPY DIRECTORY TOOL ===
   // Copies a directory within the configured directory.
@@ -813,136 +780,181 @@ export async function toolsProvider(ctl: ToolsProviderController) {
   });
   tools.push(moveDirectoryTool);
 
-  // === MOVE FILE TOOL ===
-  // Moves a file within the configured directory.
-  const moveFileTool = tool({
-    name: `move_file`,
-    description: "Move a file to a new path within the configured directory.",
-    parameters: {
-      source_path: z
-        .string()
-        .min(1, "Source path cannot be empty")
-        .refine((value) => value.trim().length > 0, "Source path cannot be empty"),
-      destination_path: z
-        .string()
-        .min(1, "Destination path cannot be empty")
-        .refine((value) => value.trim().length > 0, "Destination path cannot be empty"),
-      overwrite: z.boolean().optional(),
+  // === LIST FILES TOOL ===
+  // Lists all files in the configured directory
+  const listFilesTool = tool({
+    name: `list_files`,
+    description: "List all files in the configured directory.",
+    parameters: {},
+    implementation: async () => {
+      console.log("list_files tool called");
+      const operation = "list_files";
+      // Check if directory is set
+      const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
+      if (!folderName || !existsSync(folderName)) {
+        return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
+      }
+
+      try {
+        // Get file list
+        const files = (await readdir(folderName)).sort((a, b) => a.localeCompare(b));
+        return toSuccessResponse(operation, {
+          count: files.length,
+          files,
+        });
+      } catch {
+        return toErrorResponse(operation, "LIST_FAILED", "Failed to list files");
+      }
     },
-    implementation: async ({ source_path, destination_path, overwrite = false }) => {
-      console.log("move_file tool called with parameters:", { source_path, destination_path, overwrite });
-      const operation = "move_file";
+  });
+  tools.push(listFilesTool);
+
+  // ================
+  // UTILITY TOOLS
+  // ================
+
+  // === PATH EXISTS TOOL ===
+  // Checks whether a path exists in the configured directory.
+  const pathExistsTool = tool({
+    name: `path_exists`,
+    description: "Check whether a path exists in the configured directory.",
+    parameters: {
+      path: z
+        .string()
+        .min(1, "Path cannot be empty")
+        .refine((value) => value.trim().length > 0, "Path cannot be empty"),
+    },
+    implementation: async ({ path }) => {
+      console.log("path_exists tool called with parameters:", { path });
+      const operation = "path_exists";
       const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
 
       if (!folderName || !existsSync(folderName)) {
         return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
       }
 
-      const sourceFullPath = join(folderName, source_path);
-      const destinationFullPath = join(folderName, destination_path);
-
-      if (!isPathWithinBaseDir(folderName, sourceFullPath)) {
-        return toErrorResponse(operation, "SOURCE_PATH_OUTSIDE_BASE", "Source path is outside the configured directory.");
+      const fullPath = join(folderName, path);
+      if (!isPathWithinBaseDir(folderName, fullPath)) {
+        return toErrorResponse(operation, "PATH_OUTSIDE_BASE", "Path is outside the configured directory.");
       }
 
-      if (!isPathWithinBaseDir(folderName, destinationFullPath)) {
-        return toErrorResponse(operation, "DESTINATION_PATH_OUTSIDE_BASE", "Destination path is outside the configured directory.");
+      if (!existsSync(fullPath)) {
+        return toSuccessResponse(operation, {
+          path: normalizeRelativePath(path),
+          exists: false,
+          path_type: "missing",
+        });
       }
 
-      if (resolve(sourceFullPath) === resolve(destinationFullPath)) {
-        return toErrorResponse(operation, "SOURCE_EQUALS_DESTINATION", "Source and destination paths must be different.");
-      }
-
-      if (!existsSync(sourceFullPath)) {
-        return toErrorResponse(operation, "SOURCE_FILE_NOT_FOUND", "Source file does not exist");
-      }
-
-      const sourceStats = await stat(sourceFullPath);
-      if (!sourceStats.isFile()) {
-        return toErrorResponse(operation, "SOURCE_NOT_FILE", "Source path is not a file");
-      }
-
-      const destinationExists = existsSync(destinationFullPath);
-      if (destinationExists) {
-        const destinationStats = await stat(destinationFullPath);
-        if (destinationStats.isDirectory()) {
-          return toErrorResponse(operation, "DESTINATION_IS_DIRECTORY", "Destination path points to a directory");
-        }
-
-        if (!overwrite) {
-          return toErrorResponse(operation, "DESTINATION_EXISTS", "Destination file already exists");
-        }
-
-        await unlink(destinationFullPath);
-      }
-
-      const destinationDir = dirname(destinationFullPath);
-      if (!existsSync(destinationDir)) {
-        await mkdir(destinationDir, { recursive: true });
-      }
-
-      try {
-        await rename(sourceFullPath, destinationFullPath);
-      } catch (error) {
-        const errorCode = (error as NodeJS.ErrnoException).code;
-        if (errorCode === "EXDEV") {
-          return toErrorResponse(operation, "CROSS_DEVICE_MOVE_UNSUPPORTED", "Cannot move file across different filesystems");
-        }
-
-        return toErrorResponse(operation, "MOVE_FAILED", "Failed to move file");
-      }
+      const pathStats = await stat(fullPath);
+      const pathType = pathStats.isDirectory() ? "directory" : "file";
 
       return toSuccessResponse(operation, {
-        source_path: normalizeRelativePath(source_path),
-        destination_path: normalizeRelativePath(destination_path),
-        moved: true,
-        overwritten: destinationExists && overwrite,
+        path: normalizeRelativePath(path),
+        exists: true,
+        path_type: pathType,
       });
     },
   });
-  tools.push(moveFileTool);
+  tools.push(pathExistsTool);
 
-  // === CREATE DIRECTORY TOOL ===
-  // Creates a subdirectory within the configured directory
-  const createDirectoryTool = tool({
-    name: `create_directory`,
-    description: "Create a new subdirectory within the configured directory.",
+  // === FIND FILE TOOL ===
+  // Recursively finds files by exact filename first, then a lax pattern fallback.
+  const findFileTool = tool({
+    name: `find_file`,
+    description: "Recursively search for files in the configured directory. Tries exact filename first, then a lax match if nothing is found.",
     parameters: {
-      directory_name: z
+      file_name: z
         .string()
-        .min(1, "Directory name cannot be empty")
-        .refine((value) => value.trim().length > 0, "Directory name cannot be empty")
+        .min(1, "File name cannot be empty")
+        .refine((value) => value.trim().length > 0, "File name cannot be empty"),
     },
-    implementation: async ({ directory_name }) => {
-      console.log("create_directory tool called with parameters:", { directory_name });
-      const operation = "create_directory";
-      // Check if directory is set
+    implementation: async ({ file_name }) => {
+      console.log("find_file tool called with parameters:", { file_name });
+      const operation = "find_file";
+
       const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
-      if (!folderName) {
+      if (!folderName || !existsSync(folderName)) {
         return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
       }
-      
-      // Validate that the directory path is within the configured directory
-      const fullPath = join(folderName, directory_name);
 
-      // Security check: ensure the path is within the configured directory
-      if (!isPathWithinBaseDir(folderName, fullPath)) {
-        return toErrorResponse(operation, "DIRECTORY_PATH_OUTSIDE_BASE", "Directory path is outside the configured directory.");
+      const allFiles = (await collectRelativeFilesRecursive(folderName)).sort((a, b) => a.localeCompare(b));
+
+      if (allFiles.length === 0) {
+        return toSuccessResponse(operation, {
+          query: file_name,
+          match_type: "none",
+          count: 0,
+          matches: [],
+        });
       }
 
-      const directoryAlreadyExists = existsSync(fullPath);
+      const normalizedQuery = basename(file_name).toLowerCase();
+      const exactMatches = allFiles.filter((path) => basename(path).toLowerCase() === normalizedQuery);
 
-      // Create directory
-      await mkdir(fullPath, { recursive: true });
-      
+      if (exactMatches.length > 0) {
+        const matches: SearchMatch[] = exactMatches
+          .map((path) => ({
+            file_name: basename(path),
+            relative_path: path,
+            score: 1,
+          }))
+          .sort((a, b) => a.relative_path.localeCompare(b.relative_path));
+
+        return toSuccessResponse(operation, {
+          query: file_name,
+          match_type: "exact",
+          count: matches.length,
+          matches,
+        });
+      }
+
+      const tokens = tokenizeSearchQuery(file_name);
+      const laxRegex = buildLaxSearchRegex(tokens);
+      const laxMatches: SearchMatch[] = allFiles
+        .map((path) => {
+          const fileBaseName = basename(path);
+          if (!laxRegex.test(fileBaseName)) {
+            return null;
+          }
+
+          const score = scoreLaxMatch(fileBaseName, tokens);
+          if (score <= 0) {
+            return null;
+          }
+
+          return {
+            file_name: fileBaseName,
+            relative_path: path,
+            score,
+          };
+        })
+        .filter((match): match is SearchMatch => match !== null)
+        .sort((a, b) => {
+          if (b.score !== a.score) {
+            return b.score - a.score;
+          }
+          return a.relative_path.localeCompare(b.relative_path);
+        });
+
+      if (laxMatches.length === 0) {
+        return toSuccessResponse(operation, {
+          query: file_name,
+          match_type: "none",
+          count: 0,
+          matches: [],
+        });
+      }
+
       return toSuccessResponse(operation, {
-        directory_name: basename(directory_name),
-        relative_path: normalizeRelativePath(directory_name),
-        created: !directoryAlreadyExists,
+        query: file_name,
+        match_type: "lax",
+        count: laxMatches.length,
+        matches: laxMatches,
       });
     },
   });
-  tools.push(createDirectoryTool);
+  tools.push(findFileTool);
 
   return tools;
 }
