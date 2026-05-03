@@ -1,6 +1,6 @@
 import { tool, Tool, ToolsProviderController } from "@lmstudio/sdk";
 import { existsSync } from "fs";
-import { mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from "fs/promises";
+import { mkdir, readFile, readdir, rename, rm, rmdir, stat, unlink, writeFile } from "fs/promises";
 import { join, basename, dirname, resolve, sep } from "path";
 import { z } from "zod";
 import { configSchematics } from "./config";
@@ -425,6 +425,66 @@ export async function toolsProvider(ctl: ToolsProviderController) {
     },
   });
   tools.push(deleteFileTool);
+
+  // === DELETE DIRECTORY TOOL ===
+  // Deletes a directory within the configured directory.
+  const deleteDirectoryTool = tool({
+    name: `delete_directory`,
+    description: "Delete a directory from the configured directory.",
+    parameters: {
+      directory_path: z
+        .string()
+        .min(1, "Directory path cannot be empty")
+        .refine((value) => value.trim().length > 0, "Directory path cannot be empty"),
+      recursive: z.boolean().optional(),
+    },
+    implementation: async ({ directory_path, recursive = false }) => {
+      console.log("delete_directory tool called with parameters:", { directory_path, recursive });
+      const operation = "delete_directory";
+      const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
+
+      if (!folderName || !existsSync(folderName)) {
+        return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
+      }
+
+      const fullPath = join(folderName, directory_path);
+      if (!isPathWithinBaseDir(folderName, fullPath)) {
+        return toErrorResponse(operation, "DIRECTORY_PATH_OUTSIDE_BASE", "Directory path is outside the configured directory.");
+      }
+
+      if (!existsSync(fullPath)) {
+        return toErrorResponse(operation, "DIRECTORY_NOT_FOUND", "Directory does not exist");
+      }
+
+      const pathStats = await stat(fullPath);
+      if (!pathStats.isDirectory()) {
+        return toErrorResponse(operation, "DIRECTORY_NOT_DIRECTORY", "Path is not a directory");
+      }
+
+      try {
+        if (recursive) {
+          await rm(fullPath, { recursive: true, force: false });
+        } else {
+          await rmdir(fullPath);
+        }
+      } catch (error) {
+        const errorCode = (error as NodeJS.ErrnoException).code;
+        if (errorCode === "ENOTEMPTY" || errorCode === "EEXIST") {
+          return toErrorResponse(operation, "DIRECTORY_NOT_EMPTY", "Directory is not empty; set recursive to true to delete it");
+        }
+
+        return toErrorResponse(operation, "DELETE_FAILED", "Failed to delete directory");
+      }
+
+      return toSuccessResponse(operation, {
+        directory_name: basename(directory_path),
+        relative_path: normalizeRelativePath(directory_path),
+        deleted: true,
+        recursive,
+      });
+    },
+  });
+  tools.push(deleteDirectoryTool);
 
   // === MOVE DIRECTORY TOOL ===
   // Moves a directory within the configured directory.

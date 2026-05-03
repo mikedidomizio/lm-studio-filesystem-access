@@ -530,6 +530,118 @@ describe("toolsProvider", () => {
     });
   });
 
+  it("deletes an empty directory", async () => {
+    const createDirectoryTool = await getTool(baseDir, "create_directory");
+    const deleteDirectoryTool = await getTool(baseDir, "delete_directory");
+
+    await createDirectoryTool.implementation({ directory_name: "empty-dir" });
+
+    const raw = await deleteDirectoryTool.implementation({ directory_path: "empty-dir" });
+    const result = parseResponse<{ directory_name: string; relative_path: string; deleted: boolean; recursive: boolean }>(raw);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.operation).toBe("delete_directory");
+      expect(result.data).toEqual({
+        directory_name: "empty-dir",
+        relative_path: "empty-dir",
+        deleted: true,
+        recursive: false,
+      });
+    }
+    expect(existsSync(join(baseDir, "empty-dir"))).toBe(false);
+  });
+
+  it("returns an error when delete_directory targets a non-empty directory without recursive", async () => {
+    const writeTool = await getTool(baseDir, "write_file");
+    const deleteDirectoryTool = await getTool(baseDir, "delete_directory");
+
+    await writeTool.implementation({ file_name: "non-empty/child.txt", content: "x" });
+
+    const raw = await deleteDirectoryTool.implementation({ directory_path: "non-empty" });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "delete_directory",
+      error: {
+        code: "DIRECTORY_NOT_EMPTY",
+        message: "Directory is not empty; set recursive to true to delete it",
+      },
+    });
+    expect(existsSync(join(baseDir, "non-empty"))).toBe(true);
+  });
+
+  it("deletes a non-empty directory when recursive is true", async () => {
+    const writeTool = await getTool(baseDir, "write_file");
+    const deleteDirectoryTool = await getTool(baseDir, "delete_directory");
+
+    await writeTool.implementation({ file_name: "to-delete/nested/file.txt", content: "x" });
+
+    const raw = await deleteDirectoryTool.implementation({
+      directory_path: "to-delete",
+      recursive: true,
+    });
+    const result = parseResponse<{ recursive: boolean }>(raw);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.recursive).toBe(true);
+    }
+    expect(existsSync(join(baseDir, "to-delete"))).toBe(false);
+  });
+
+  it("returns an error when delete_directory path does not exist", async () => {
+    const deleteDirectoryTool = await getTool(baseDir, "delete_directory");
+
+    const raw = await deleteDirectoryTool.implementation({ directory_path: "missing-dir" });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "delete_directory",
+      error: {
+        code: "DIRECTORY_NOT_FOUND",
+        message: "Directory does not exist",
+      },
+    });
+  });
+
+  it("blocks delete_directory when path escapes the selected folder", async () => {
+    const deleteDirectoryTool = await getTool(baseDir, "delete_directory");
+
+    const raw = await deleteDirectoryTool.implementation({ directory_path: "../outside-dir" });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "delete_directory",
+      error: {
+        code: "DIRECTORY_PATH_OUTSIDE_BASE",
+        message: "Directory path is outside the configured directory.",
+      },
+    });
+  });
+
+  it("returns an error when delete_directory path points to a file", async () => {
+    const writeTool = await getTool(baseDir, "write_file");
+    const deleteDirectoryTool = await getTool(baseDir, "delete_directory");
+
+    await writeTool.implementation({ file_name: "not-a-dir.txt", content: "x" });
+
+    const raw = await deleteDirectoryTool.implementation({ directory_path: "not-a-dir.txt" });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "delete_directory",
+      error: {
+        code: "DIRECTORY_NOT_DIRECTORY",
+        message: "Path is not a directory",
+      },
+    });
+  });
+
   it("finds a file by exact name recursively and returns a relative path", async () => {
     const writeTool = await getTool(baseDir, "write_file");
     const findFileTool = await getTool(baseDir, "find_file");

@@ -10,6 +10,7 @@ Allows filesystem access for the following actions:
 - move_file
 - delete_file
 - move_directory
+- delete_directory
 
 ## JSON Response Contract
 
@@ -47,6 +48,10 @@ Current error codes include:
 - `DIRECTORY_PATH_OUTSIDE_BASE`
 - `FILE_NOT_FOUND`
 - `FILE_NOT_FILE`
+- `DIRECTORY_NOT_FOUND`
+- `DIRECTORY_NOT_DIRECTORY`
+- `DIRECTORY_NOT_EMPTY`
+- `DELETE_FAILED`
 
 `move_file` can also return:
 
@@ -99,6 +104,15 @@ Current error codes include:
 1. The resolved path must stay inside the configured base directory.
 2. The target must exist and be a file (not a directory).
 3. On success, the tool returns `deleted: true` with `file_name` and `relative_path`.
+
+## Directory Delete Behavior
+
+`delete_directory` deletes a directory at `directory_path` within the configured base directory.
+
+1. The resolved path must stay inside the configured base directory.
+2. The target must exist and be a directory (not a file).
+3. By default `recursive` is `false`; non-empty directories return `DIRECTORY_NOT_EMPTY`.
+4. Set `recursive: true` to delete non-empty directories.
 
 ## File Search Behavior
 
