@@ -11,6 +11,7 @@ Allows filesystem access for the following actions:
 - delete_file
 - move_directory
 - delete_directory
+- copy_file
 
 ## JSON Response Contract
 
@@ -65,6 +66,17 @@ Current error codes include:
 - `CROSS_DEVICE_MOVE_UNSUPPORTED`
 - `MOVE_FAILED`
 
+`copy_file` can also return:
+
+- `SOURCE_PATH_OUTSIDE_BASE`
+- `DESTINATION_PATH_OUTSIDE_BASE`
+- `SOURCE_EQUALS_DESTINATION`
+- `SOURCE_FILE_NOT_FOUND`
+- `SOURCE_NOT_FILE`
+- `DESTINATION_IS_DIRECTORY`
+- `DESTINATION_EXISTS`
+- `COPY_FAILED`
+
 `move_directory` can also return:
 
 - `SOURCE_PATH_OUTSIDE_BASE`
@@ -86,6 +98,16 @@ Current error codes include:
 2. `source_path` must exist and be a file.
 3. If destination exists and `overwrite` is not `true`, the tool returns `DESTINATION_EXISTS`.
 4. If needed, parent directories for `destination_path` are created automatically.
+
+## File Copy Behavior
+
+`copy_file` copies a file from `source_path` to `destination_path` within the configured base directory.
+
+1. Both paths must resolve inside the configured base directory.
+2. `source_path` must exist and be a file.
+3. Source and destination cannot be the same path.
+4. If destination exists and `overwrite` is not `true`, the tool returns `DESTINATION_EXISTS`.
+5. If needed, parent directories for `destination_path` are created automatically.
 
 ## Directory Move Behavior
 
