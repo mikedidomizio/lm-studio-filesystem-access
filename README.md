@@ -1,6 +1,7 @@
 # LM Studio Tool Plugin - Filesystem Access
 
-Source code (git): https://github.com/mikedidomizio/lm-studio-filesystem-access
+[Source code](https://github.com/mikedidomizio/lm-studio-filesystem-access) |
+[LM Studio listing](https://lmstudio.ai/mikedidomizio/filesystem-access)
 
 Allows filesystem access for the following actions:
 
