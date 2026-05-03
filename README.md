@@ -7,6 +7,7 @@ Allows filesystem access for the following actions:
 - write_file
 - read_file
 - find_file
+- move_file
 
 ## JSON Response Contract
 
@@ -43,6 +44,27 @@ Current error codes include:
 - `FILE_PATH_OUTSIDE_BASE`
 - `DIRECTORY_PATH_OUTSIDE_BASE`
 - `FILE_NOT_FOUND`
+
+`move_file` can also return:
+
+- `SOURCE_PATH_OUTSIDE_BASE`
+- `DESTINATION_PATH_OUTSIDE_BASE`
+- `SOURCE_EQUALS_DESTINATION`
+- `SOURCE_FILE_NOT_FOUND`
+- `SOURCE_NOT_FILE`
+- `DESTINATION_IS_DIRECTORY`
+- `DESTINATION_EXISTS`
+- `CROSS_DEVICE_MOVE_UNSUPPORTED`
+- `MOVE_FAILED`
+
+## File Move Behavior
+
+`move_file` moves a file from `source_path` to `destination_path` within the configured base directory.
+
+1. Both paths must resolve inside the configured base directory.
+2. `source_path` must exist and be a file.
+3. If destination exists and `overwrite` is not `true`, the tool returns `DESTINATION_EXISTS`.
+4. If needed, parent directories for `destination_path` are created automatically.
 
 ## File Search Behavior
 

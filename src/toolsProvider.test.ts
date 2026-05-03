@@ -229,6 +229,121 @@ describe("toolsProvider", () => {
     }
   });
 
+  it("moves a file to a new path", async () => {
+    const writeTool = await getTool(baseDir, "write_file");
+    const moveFileTool = await getTool(baseDir, "move_file");
+
+    await writeTool.implementation({ file_name: "drafts/todo.txt", content: "ship it" });
+
+    const raw = await moveFileTool.implementation({
+      source_path: "drafts/todo.txt",
+      destination_path: "archive/todo.txt",
+    });
+    const result = parseResponse<{
+      source_path: string;
+      destination_path: string;
+      overwritten: boolean;
+    }>(raw);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.operation).toBe("move_file");
+      expect(result.data).toEqual({
+        source_path: "drafts/todo.txt",
+        destination_path: "archive/todo.txt",
+        overwritten: false,
+      });
+    }
+
+    expect(existsSync(join(baseDir, "drafts/todo.txt"))).toBe(false);
+    expect(await readFile(join(baseDir, "archive/todo.txt"), "utf-8")).toBe("ship it");
+  });
+
+  it("returns an error when move_file destination exists and overwrite is false", async () => {
+    const writeTool = await getTool(baseDir, "write_file");
+    const moveFileTool = await getTool(baseDir, "move_file");
+
+    await writeTool.implementation({ file_name: "src/a.txt", content: "a" });
+    await writeTool.implementation({ file_name: "dst/a.txt", content: "old" });
+
+    const raw = await moveFileTool.implementation({
+      source_path: "src/a.txt",
+      destination_path: "dst/a.txt",
+    });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "move_file",
+      error: {
+        code: "DESTINATION_EXISTS",
+        message: "Destination file already exists",
+      },
+    });
+    expect(await readFile(join(baseDir, "src/a.txt"), "utf-8")).toBe("a");
+    expect(await readFile(join(baseDir, "dst/a.txt"), "utf-8")).toBe("old");
+  });
+
+  it("overwrites destination when move_file overwrite is true", async () => {
+    const writeTool = await getTool(baseDir, "write_file");
+    const moveFileTool = await getTool(baseDir, "move_file");
+
+    await writeTool.implementation({ file_name: "src/a.txt", content: "new" });
+    await writeTool.implementation({ file_name: "dst/a.txt", content: "old" });
+
+    const raw = await moveFileTool.implementation({
+      source_path: "src/a.txt",
+      destination_path: "dst/a.txt",
+      overwrite: true,
+    });
+    const result = parseResponse<{ overwritten: boolean }>(raw);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.overwritten).toBe(true);
+    }
+    expect(existsSync(join(baseDir, "src/a.txt"))).toBe(false);
+    expect(await readFile(join(baseDir, "dst/a.txt"), "utf-8")).toBe("new");
+  });
+
+  it("blocks move_file when source path escapes the selected folder", async () => {
+    const moveFileTool = await getTool(baseDir, "move_file");
+
+    const raw = await moveFileTool.implementation({
+      source_path: "../outside.txt",
+      destination_path: "inside.txt",
+    });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "move_file",
+      error: {
+        code: "SOURCE_PATH_OUTSIDE_BASE",
+        message: "Source path is outside the configured directory.",
+      },
+    });
+  });
+
+  it("returns an error when move_file source does not exist", async () => {
+    const moveFileTool = await getTool(baseDir, "move_file");
+
+    const raw = await moveFileTool.implementation({
+      source_path: "missing.txt",
+      destination_path: "archive/missing.txt",
+    });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "move_file",
+      error: {
+        code: "SOURCE_FILE_NOT_FOUND",
+        message: "Source file does not exist",
+      },
+    });
+  });
+
   it("finds a file by exact name recursively and returns a relative path", async () => {
     const writeTool = await getTool(baseDir, "write_file");
     const findFileTool = await getTool(baseDir, "find_file");

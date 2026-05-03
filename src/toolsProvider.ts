@@ -1,6 +1,6 @@
 import { tool, Tool, ToolsProviderController } from "@lmstudio/sdk";
 import { existsSync } from "fs";
-import { mkdir, readFile, readdir, writeFile } from "fs/promises";
+import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from "fs/promises";
 import { join, basename, dirname, resolve, sep } from "path";
 import { z } from "zod";
 import { configSchematics } from "./config";
@@ -380,6 +380,94 @@ export async function toolsProvider(ctl: ToolsProviderController) {
     },
   });
   tools.push(findFileTool);
+
+  // === MOVE FILE TOOL ===
+  // Moves a file within the configured directory.
+  const moveFileTool = tool({
+    name: `move_file`,
+    description: "Move a file to a new path within the configured directory.",
+    parameters: {
+      source_path: z
+        .string()
+        .min(1, "Source path cannot be empty")
+        .refine((value) => value.trim().length > 0, "Source path cannot be empty"),
+      destination_path: z
+        .string()
+        .min(1, "Destination path cannot be empty")
+        .refine((value) => value.trim().length > 0, "Destination path cannot be empty"),
+      overwrite: z.boolean().optional(),
+    },
+    implementation: async ({ source_path, destination_path, overwrite = false }) => {
+      console.log("move_file tool called with parameters:", { source_path, destination_path, overwrite });
+      const operation = "move_file";
+      const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
+
+      if (!folderName || !existsSync(folderName)) {
+        return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
+      }
+
+      const sourceFullPath = join(folderName, source_path);
+      const destinationFullPath = join(folderName, destination_path);
+
+      if (!isPathWithinBaseDir(folderName, sourceFullPath)) {
+        return toErrorResponse(operation, "SOURCE_PATH_OUTSIDE_BASE", "Source path is outside the configured directory.");
+      }
+
+      if (!isPathWithinBaseDir(folderName, destinationFullPath)) {
+        return toErrorResponse(operation, "DESTINATION_PATH_OUTSIDE_BASE", "Destination path is outside the configured directory.");
+      }
+
+      if (resolve(sourceFullPath) === resolve(destinationFullPath)) {
+        return toErrorResponse(operation, "SOURCE_EQUALS_DESTINATION", "Source and destination paths must be different.");
+      }
+
+      if (!existsSync(sourceFullPath)) {
+        return toErrorResponse(operation, "SOURCE_FILE_NOT_FOUND", "Source file does not exist");
+      }
+
+      const sourceStats = await stat(sourceFullPath);
+      if (!sourceStats.isFile()) {
+        return toErrorResponse(operation, "SOURCE_NOT_FILE", "Source path is not a file");
+      }
+
+      const destinationExists = existsSync(destinationFullPath);
+      if (destinationExists) {
+        const destinationStats = await stat(destinationFullPath);
+        if (destinationStats.isDirectory()) {
+          return toErrorResponse(operation, "DESTINATION_IS_DIRECTORY", "Destination path points to a directory");
+        }
+
+        if (!overwrite) {
+          return toErrorResponse(operation, "DESTINATION_EXISTS", "Destination file already exists");
+        }
+
+        await unlink(destinationFullPath);
+      }
+
+      const destinationDir = dirname(destinationFullPath);
+      if (!existsSync(destinationDir)) {
+        await mkdir(destinationDir, { recursive: true });
+      }
+
+      try {
+        await rename(sourceFullPath, destinationFullPath);
+      } catch (error) {
+        const errorCode = (error as NodeJS.ErrnoException).code;
+        if (errorCode === "EXDEV") {
+          return toErrorResponse(operation, "CROSS_DEVICE_MOVE_UNSUPPORTED", "Cannot move file across different filesystems");
+        }
+
+        return toErrorResponse(operation, "MOVE_FAILED", "Failed to move file");
+      }
+
+      return toSuccessResponse(operation, {
+        source_path: normalizeRelativePath(source_path),
+        destination_path: normalizeRelativePath(destination_path),
+        overwritten: destinationExists && overwrite,
+      });
+    },
+  });
+  tools.push(moveFileTool);
 
   // === CREATE DIRECTORY TOOL ===
   // Creates a subdirectory within the configured directory
