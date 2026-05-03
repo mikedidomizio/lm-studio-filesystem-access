@@ -462,6 +462,122 @@ describe("toolsProvider", () => {
     });
   });
 
+  it("copies a directory to a new path", async () => {
+    const writeTool = await getTool(baseDir, "write_file");
+    const copyDirectoryTool = await getTool(baseDir, "copy_directory");
+
+    await writeTool.implementation({ file_name: "docs/source/readme.md", content: "hello" });
+
+    const raw = await copyDirectoryTool.implementation({
+      source_path: "docs/source",
+      destination_path: "docs/backup/source",
+    });
+    const result = parseResponse<{ source_path: string; destination_path: string; overwritten: boolean; copied: boolean }>(raw);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.operation).toBe("copy_directory");
+      expect(result.data).toEqual({
+        source_path: "docs/source",
+        destination_path: "docs/backup/source",
+        overwritten: false,
+        copied: true,
+      });
+    }
+
+    expect(await readFile(join(baseDir, "docs/source/readme.md"), "utf-8")).toBe("hello");
+    expect(await readFile(join(baseDir, "docs/backup/source/readme.md"), "utf-8")).toBe("hello");
+  });
+
+  it("returns an error when copy_directory destination exists and overwrite is false", async () => {
+    const createDirectoryTool = await getTool(baseDir, "create_directory");
+    const copyDirectoryTool = await getTool(baseDir, "copy_directory");
+
+    await createDirectoryTool.implementation({ directory_name: "a/src" });
+    await createDirectoryTool.implementation({ directory_name: "a/dst" });
+
+    const raw = await copyDirectoryTool.implementation({
+      source_path: "a/src",
+      destination_path: "a/dst",
+    });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "copy_directory",
+      error: {
+        code: "DESTINATION_EXISTS",
+        message: "Destination directory already exists",
+      },
+    });
+  });
+
+  it("overwrites destination when copy_directory overwrite is true", async () => {
+    const writeTool = await getTool(baseDir, "write_file");
+    const copyDirectoryTool = await getTool(baseDir, "copy_directory");
+
+    await writeTool.implementation({ file_name: "a/src/new.txt", content: "new" });
+    await writeTool.implementation({ file_name: "a/dst/old.txt", content: "old" });
+
+    const raw = await copyDirectoryTool.implementation({
+      source_path: "a/src",
+      destination_path: "a/dst",
+      overwrite: true,
+    });
+    const result = parseResponse<{ overwritten: boolean; copied: boolean }>(raw);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.overwritten).toBe(true);
+      expect(result.data.copied).toBe(true);
+    }
+
+    expect(await readFile(join(baseDir, "a/src/new.txt"), "utf-8")).toBe("new");
+    expect(await readFile(join(baseDir, "a/dst/new.txt"), "utf-8")).toBe("new");
+    expect(existsSync(join(baseDir, "a/dst/old.txt"))).toBe(false);
+  });
+
+  it("blocks copy_directory when destination is inside source", async () => {
+    const createDirectoryTool = await getTool(baseDir, "create_directory");
+    const copyDirectoryTool = await getTool(baseDir, "copy_directory");
+
+    await createDirectoryTool.implementation({ directory_name: "root/child" });
+
+    const raw = await copyDirectoryTool.implementation({
+      source_path: "root",
+      destination_path: "root/child/new-root",
+    });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "copy_directory",
+      error: {
+        code: "DESTINATION_INSIDE_SOURCE",
+        message: "Destination cannot be inside the source directory.",
+      },
+    });
+  });
+
+  it("returns an error when copy_directory source does not exist", async () => {
+    const copyDirectoryTool = await getTool(baseDir, "copy_directory");
+
+    const raw = await copyDirectoryTool.implementation({
+      source_path: "missing-dir",
+      destination_path: "archive/missing-dir",
+    });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "copy_directory",
+      error: {
+        code: "SOURCE_DIRECTORY_NOT_FOUND",
+        message: "Source directory does not exist",
+      },
+    });
+  });
+
   it("moves a directory to a new path", async () => {
     const writeTool = await getTool(baseDir, "write_file");
     const moveDirectoryTool = await getTool(baseDir, "move_directory");

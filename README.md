@@ -12,6 +12,7 @@ Allows filesystem access for the following actions:
 - move_directory
 - delete_directory
 - copy_file
+- copy_directory
 
 ## JSON Response Contract
 
@@ -77,6 +78,18 @@ Current error codes include:
 - `DESTINATION_EXISTS`
 - `COPY_FAILED`
 
+`copy_directory` can also return:
+
+- `SOURCE_PATH_OUTSIDE_BASE`
+- `DESTINATION_PATH_OUTSIDE_BASE`
+- `SOURCE_EQUALS_DESTINATION`
+- `DESTINATION_INSIDE_SOURCE`
+- `SOURCE_DIRECTORY_NOT_FOUND`
+- `SOURCE_NOT_DIRECTORY`
+- `DESTINATION_NOT_DIRECTORY`
+- `DESTINATION_EXISTS`
+- `COPY_FAILED`
+
 `move_directory` can also return:
 
 - `SOURCE_PATH_OUTSIDE_BASE`
@@ -108,6 +121,17 @@ Current error codes include:
 3. Source and destination cannot be the same path.
 4. If destination exists and `overwrite` is not `true`, the tool returns `DESTINATION_EXISTS`.
 5. If needed, parent directories for `destination_path` are created automatically.
+
+## Directory Copy Behavior
+
+`copy_directory` copies a directory from `source_path` to `destination_path` within the configured base directory.
+
+1. Both paths must resolve inside the configured base directory.
+2. `source_path` must exist and be a directory.
+3. Source and destination cannot be the same path.
+4. Destination cannot be nested inside source.
+5. If destination exists and `overwrite` is not `true`, the tool returns `DESTINATION_EXISTS`.
+6. If needed, parent directories for `destination_path` are created automatically.
 
 ## Directory Move Behavior
 
