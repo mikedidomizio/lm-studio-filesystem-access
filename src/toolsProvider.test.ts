@@ -316,35 +316,37 @@ describe("toolsProvider", () => {
     });
   });
 
-  it("moves a file to a new path", async () => {
-    const writeTool = await getTool(baseDir, "write_file");
-    const moveFileTool = await getTool(baseDir, "move_file");
+   it("moves a file to a new path", async () => {
+     const writeTool = await getTool(baseDir, "write_file");
+     const moveFileTool = await getTool(baseDir, "move_file");
 
-    await writeTool.implementation({ file_name: "drafts/todo.txt", content: "ship it" });
+     await writeTool.implementation({ file_name: "drafts/todo.txt", content: "ship it" });
 
-    const raw = await moveFileTool.implementation({
-      source_path: "drafts/todo.txt",
-      destination_path: "archive/todo.txt",
-    });
-    const result = parseResponse<{
-      source_path: string;
-      destination_path: string;
-      overwritten: boolean;
-    }>(raw);
+     const raw = await moveFileTool.implementation({
+       source_path: "drafts/todo.txt",
+       destination_path: "archive/todo.txt",
+     });
+     const result = parseResponse<{
+       source_path: string;
+       destination_path: string;
+       moved: boolean;
+       overwritten: boolean;
+     }>(raw);
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.operation).toBe("move_file");
-      expect(result.data).toEqual({
-        source_path: "drafts/todo.txt",
-        destination_path: "archive/todo.txt",
-        overwritten: false,
-      });
-    }
+     expect(result.ok).toBe(true);
+     if (result.ok) {
+       expect(result.operation).toBe("move_file");
+       expect(result.data).toEqual({
+         source_path: "drafts/todo.txt",
+         destination_path: "archive/todo.txt",
+         moved: true,
+         overwritten: false,
+       });
+     }
 
-    expect(existsSync(join(baseDir, "drafts/todo.txt"))).toBe(false);
-    expect(await readFile(join(baseDir, "archive/todo.txt"), "utf-8")).toBe("ship it");
-  });
+     expect(existsSync(join(baseDir, "drafts/todo.txt"))).toBe(false);
+     expect(await readFile(join(baseDir, "archive/todo.txt"), "utf-8")).toBe("ship it");
+   });
 
   it("returns an error when move_file destination exists and overwrite is false", async () => {
     const writeTool = await getTool(baseDir, "write_file");
@@ -371,27 +373,28 @@ describe("toolsProvider", () => {
     expect(await readFile(join(baseDir, "dst/a.txt"), "utf-8")).toBe("old");
   });
 
-  it("overwrites destination when move_file overwrite is true", async () => {
-    const writeTool = await getTool(baseDir, "write_file");
-    const moveFileTool = await getTool(baseDir, "move_file");
+   it("overwrites destination when move_file overwrite is true", async () => {
+     const writeTool = await getTool(baseDir, "write_file");
+     const moveFileTool = await getTool(baseDir, "move_file");
 
-    await writeTool.implementation({ file_name: "src/a.txt", content: "new" });
-    await writeTool.implementation({ file_name: "dst/a.txt", content: "old" });
+     await writeTool.implementation({ file_name: "src/a.txt", content: "new" });
+     await writeTool.implementation({ file_name: "dst/a.txt", content: "old" });
 
-    const raw = await moveFileTool.implementation({
-      source_path: "src/a.txt",
-      destination_path: "dst/a.txt",
-      overwrite: true,
-    });
-    const result = parseResponse<{ overwritten: boolean }>(raw);
+     const raw = await moveFileTool.implementation({
+       source_path: "src/a.txt",
+       destination_path: "dst/a.txt",
+       overwrite: true,
+     });
+     const result = parseResponse<{ moved: boolean; overwritten: boolean }>(raw);
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.data.overwritten).toBe(true);
-    }
-    expect(existsSync(join(baseDir, "src/a.txt"))).toBe(false);
-    expect(await readFile(join(baseDir, "dst/a.txt"), "utf-8")).toBe("new");
-  });
+     expect(result.ok).toBe(true);
+     if (result.ok) {
+       expect(result.data.moved).toBe(true);
+       expect(result.data.overwritten).toBe(true);
+     }
+     expect(existsSync(join(baseDir, "src/a.txt"))).toBe(false);
+     expect(await readFile(join(baseDir, "dst/a.txt"), "utf-8")).toBe("new");
+   });
 
   it("blocks move_file when source path escapes the selected folder", async () => {
     const moveFileTool = await getTool(baseDir, "move_file");
@@ -665,31 +668,32 @@ describe("toolsProvider", () => {
     });
   });
 
-  it("moves a directory to a new path", async () => {
-    const writeTool = await getTool(baseDir, "write_file");
-    const moveDirectoryTool = await getTool(baseDir, "move_directory");
+   it("moves a directory to a new path", async () => {
+     const writeTool = await getTool(baseDir, "write_file");
+     const moveDirectoryTool = await getTool(baseDir, "move_directory");
 
-    await writeTool.implementation({ file_name: "docs/source/readme.md", content: "hello" });
+     await writeTool.implementation({ file_name: "docs/source/readme.md", content: "hello" });
 
-    const raw = await moveDirectoryTool.implementation({
-      source_path: "docs/source",
-      destination_path: "docs/archive/source",
-    });
-    const result = parseResponse<{ source_path: string; destination_path: string; overwritten: boolean }>(raw);
+     const raw = await moveDirectoryTool.implementation({
+       source_path: "docs/source",
+       destination_path: "docs/archive/source",
+     });
+     const result = parseResponse<{ source_path: string; destination_path: string; moved: boolean; overwritten: boolean }>(raw);
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.operation).toBe("move_directory");
-      expect(result.data).toEqual({
-        source_path: "docs/source",
-        destination_path: "docs/archive/source",
-        overwritten: false,
-      });
-    }
+     expect(result.ok).toBe(true);
+     if (result.ok) {
+       expect(result.operation).toBe("move_directory");
+       expect(result.data).toEqual({
+         source_path: "docs/source",
+         destination_path: "docs/archive/source",
+         moved: true,
+         overwritten: false,
+       });
+     }
 
-    expect(existsSync(join(baseDir, "docs/source"))).toBe(false);
-    expect(await readFile(join(baseDir, "docs/archive/source/readme.md"), "utf-8")).toBe("hello");
-  });
+     expect(existsSync(join(baseDir, "docs/source"))).toBe(false);
+     expect(await readFile(join(baseDir, "docs/archive/source/readme.md"), "utf-8")).toBe("hello");
+   });
 
   it("returns an error when move_directory destination exists and overwrite is false", async () => {
     const createDirectoryTool = await getTool(baseDir, "create_directory");
@@ -714,29 +718,30 @@ describe("toolsProvider", () => {
     });
   });
 
-  it("overwrites destination when move_directory overwrite is true", async () => {
-    const writeTool = await getTool(baseDir, "write_file");
-    const moveDirectoryTool = await getTool(baseDir, "move_directory");
+   it("overwrites destination when move_directory overwrite is true", async () => {
+     const writeTool = await getTool(baseDir, "write_file");
+     const moveDirectoryTool = await getTool(baseDir, "move_directory");
 
-    await writeTool.implementation({ file_name: "a/src/new.txt", content: "new" });
-    await writeTool.implementation({ file_name: "a/dst/old.txt", content: "old" });
+     await writeTool.implementation({ file_name: "a/src/new.txt", content: "new" });
+     await writeTool.implementation({ file_name: "a/dst/old.txt", content: "old" });
 
-    const raw = await moveDirectoryTool.implementation({
-      source_path: "a/src",
-      destination_path: "a/dst",
-      overwrite: true,
-    });
-    const result = parseResponse<{ overwritten: boolean }>(raw);
+     const raw = await moveDirectoryTool.implementation({
+       source_path: "a/src",
+       destination_path: "a/dst",
+       overwrite: true,
+     });
+     const result = parseResponse<{ moved: boolean; overwritten: boolean }>(raw);
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.data.overwritten).toBe(true);
-    }
+     expect(result.ok).toBe(true);
+     if (result.ok) {
+       expect(result.data.moved).toBe(true);
+       expect(result.data.overwritten).toBe(true);
+     }
 
-    expect(existsSync(join(baseDir, "a/src"))).toBe(false);
-    expect(await readFile(join(baseDir, "a/dst/new.txt"), "utf-8")).toBe("new");
-    expect(existsSync(join(baseDir, "a/dst/old.txt"))).toBe(false);
-  });
+     expect(existsSync(join(baseDir, "a/src"))).toBe(false);
+     expect(await readFile(join(baseDir, "a/dst/new.txt"), "utf-8")).toBe("new");
+     expect(existsSync(join(baseDir, "a/dst/old.txt"))).toBe(false);
+   });
 
   it("blocks move_directory when destination is inside source", async () => {
     const createDirectoryTool = await getTool(baseDir, "create_directory");
@@ -1133,21 +1138,21 @@ describe("toolsProvider", () => {
     }
   });
 
-  it("tells a user to set a folder before reading files", async () => {
-    const readTool = await getTool(undefined, "read_file");
+   it("tells a user to set a folder before reading files", async () => {
+     const readTool = await getTool(undefined, "read_file");
 
-    const raw = await readTool.implementation({ file_name: "missing.txt" });
-    const result = parseResponse(raw);
+     const raw = await readTool.implementation({ file_name: "missing.txt" });
+     const result = parseResponse(raw);
 
-    expect(result).toEqual({
-      ok: false,
-      operation: "read_file",
-      error: {
-        code: "DIR_NOT_SET",
-        message: "Directory not set. Use set_directory first.",
-      },
-    });
-  });
+     expect(result).toEqual({
+       ok: false,
+       operation: "read_file",
+       error: {
+         code: "DIR_NOT_AVAILABLE",
+         message: "Directory not set or does not exist",
+       },
+     });
+   });
 
   it("tells a user when the requested file does not exist", async () => {
     const readTool = await getTool(baseDir, "read_file");

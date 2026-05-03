@@ -177,7 +177,7 @@ export async function toolsProvider(ctl: ToolsProviderController) {
       // Check if directory is set
       const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
       if (!folderName) {
-        return toErrorResponse(operation, "DIR_NOT_SET", "Directory not set. Use set_directory first.");
+        return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
       }
 
       // Validate that the file path is within the configured directory
@@ -197,9 +197,13 @@ export async function toolsProvider(ctl: ToolsProviderController) {
         await mkdir(fileDir, { recursive: true });
       }
       
-      // Write file (creates or overwrites)
-      await writeFile(fullPath, content, "utf-8");
-      
+      try {
+        // Write file (creates or overwrites)
+        await writeFile(fullPath, content, "utf-8");
+      } catch {
+        return toErrorResponse(operation, "WRITE_FAILED", "Failed to write file");
+      }
+
       return toSuccessResponse(operation, {
         file_name: basename(file_name),
         relative_path: normalizeRelativePath(file_name),
@@ -227,7 +231,7 @@ export async function toolsProvider(ctl: ToolsProviderController) {
       // Check if directory is set
       const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
       if (!folderName) {
-        return toErrorResponse(operation, "DIR_NOT_SET", "Directory not set. Use set_directory first.");
+        return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
       }
       
       // Validate that the file path is within the configured directory
@@ -246,13 +250,17 @@ export async function toolsProvider(ctl: ToolsProviderController) {
         return toErrorResponse(operation, "FILE_NOT_FOUND", "File does not exist");
       }
       
-      // Read and return content
-      const content = await readFile(filePath, "utf-8");
-      return toSuccessResponse(operation, {
-        file_name: basename(file_name),
-        relative_path: normalizeRelativePath(file_name),
-        content,
-      });
+      try {
+        // Read and return content
+        const content = await readFile(filePath, "utf-8");
+        return toSuccessResponse(operation, {
+          file_name: basename(file_name),
+          relative_path: normalizeRelativePath(file_name),
+          content,
+        });
+      } catch {
+        return toErrorResponse(operation, "READ_FAILED", "Failed to read file");
+      }
     },
   });
   tools.push(readFileTool);
@@ -272,13 +280,16 @@ export async function toolsProvider(ctl: ToolsProviderController) {
         return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
       }
 
-      // Get file list
-      const files = (await readdir(folderName)).sort((a, b) => a.localeCompare(b));
-
-      return toSuccessResponse(operation, {
-        count: files.length,
-        files,
-      });
+      try {
+        // Get file list
+        const files = (await readdir(folderName)).sort((a, b) => a.localeCompare(b));
+        return toSuccessResponse(operation, {
+          count: files.length,
+          files,
+        });
+      } catch {
+        return toErrorResponse(operation, "LIST_FAILED", "Failed to list files");
+      }
     },
   });
   tools.push(listFilesTool);
@@ -795,6 +806,7 @@ export async function toolsProvider(ctl: ToolsProviderController) {
       return toSuccessResponse(operation, {
         source_path: normalizeRelativePath(source_path),
         destination_path: normalizeRelativePath(destination_path),
+        moved: true,
         overwritten: destinationExists && overwrite,
       });
     },
@@ -883,6 +895,7 @@ export async function toolsProvider(ctl: ToolsProviderController) {
       return toSuccessResponse(operation, {
         source_path: normalizeRelativePath(source_path),
         destination_path: normalizeRelativePath(destination_path),
+        moved: true,
         overwritten: destinationExists && overwrite,
       });
     },
@@ -906,7 +919,7 @@ export async function toolsProvider(ctl: ToolsProviderController) {
       // Check if directory is set
       const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
       if (!folderName) {
-        return toErrorResponse(operation, "DIR_NOT_SET", "Directory not set. Use set_directory first.");
+        return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
       }
       
       // Validate that the directory path is within the configured directory
