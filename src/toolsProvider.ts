@@ -5,6 +5,41 @@ import { join, basename, dirname, resolve, sep } from "path";
 import { z } from "zod";
 import { configSchematics } from "./config";
 
+type ToolSuccess<T> = {
+  ok: true;
+  operation: string;
+  data: T;
+};
+
+type ToolFailure = {
+  ok: false;
+  operation: string;
+  error: {
+    code: string;
+    message: string;
+  };
+};
+
+type SearchMatch = {
+  file_name: string;
+  relative_path: string;
+  score: number;
+};
+
+function toSuccessResponse<T>(operation: string, data: T): string {
+  const payload: ToolSuccess<T> = { ok: true, operation, data };
+  return JSON.stringify(payload);
+}
+
+function toErrorResponse(operation: string, code: string, message: string): string {
+  const payload: ToolFailure = { ok: false, operation, error: { code, message } };
+  return JSON.stringify(payload);
+}
+
+function normalizeRelativePath(pathValue: string): string {
+  return pathValue.split(sep).join("/");
+}
+
 // Helper function to check if a path is within a base directory
 function isPathWithinBaseDir(baseDir: string, targetPath: string): boolean {
   // First, resolve both paths to absolute paths to handle all path variations
@@ -41,18 +76,58 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function buildLaxSearchRegex(query: string): RegExp {
-  const tokens = query
+function tokenizeSearchQuery(query: string): string[] {
+  return query
     .trim()
+    .toLowerCase()
     .split(/[\s._-]+/)
-    .filter((token) => token.length > 0)
-    .map((token) => escapeRegExp(token));
+    .filter((token) => token.length > 0);
+}
 
-  if (tokens.length === 0) {
+function buildLaxSearchRegex(tokens: string[]): RegExp {
+  const escapedTokens = tokens.map((token) => escapeRegExp(token));
+
+  if (escapedTokens.length === 0) {
     return /^$/;
   }
 
-  return new RegExp(tokens.join(".*"), "i");
+  return new RegExp(escapedTokens.join(".*"), "i");
+}
+
+function scoreLaxMatch(fileBaseName: string, tokens: string[]): number {
+  const normalizedName = fileBaseName.toLowerCase();
+
+  if (normalizedName.length === 0 || tokens.length === 0) {
+    return 0;
+  }
+
+  let cursor = 0;
+  let matchedChars = 0;
+  let spanStart = -1;
+  let spanEnd = -1;
+
+  for (const token of tokens) {
+    const index = normalizedName.indexOf(token, cursor);
+    if (index === -1) {
+      return 0;
+    }
+
+    if (spanStart === -1) {
+      spanStart = index;
+    }
+
+    matchedChars += token.length;
+    spanEnd = index + token.length;
+    cursor = index + token.length;
+  }
+
+  const coverage = matchedChars / normalizedName.length;
+  const spanLength = Math.max(spanEnd - spanStart, 1);
+  const compactness = matchedChars / spanLength;
+  const startsAtBeginningBonus = spanStart === 0 ? 0.05 : 0;
+  const score = (coverage * 0.5) + (compactness * 0.45) + startsAtBeginningBonus;
+
+  return Number(Math.min(score, 0.99).toFixed(4));
 }
 
 async function collectRelativeFilesRecursive(baseDir: string, currentDir = ""): Promise<string[]> {
@@ -74,22 +149,11 @@ async function collectRelativeFilesRecursive(baseDir: string, currentDir = ""): 
     }
 
     if (entry.isFile()) {
-      files.push(relativePath.split(sep).join("/"));
+      files.push(normalizeRelativePath(relativePath));
     }
   }
 
   return files;
-}
-
-function formatMatches(matches: string[]): string {
-  if (matches.length === 1) {
-    const [path] = matches;
-    return `File found:\n- file_name: ${basename(path)} | relative_path: ${path}`;
-  }
-
-  return `Files found (${matches.length}):\n${matches
-    .map((path) => `- file_name: ${basename(path)} | relative_path: ${path}`)
-    .join("\n")}`;
 }
 
 export async function toolsProvider(ctl: ToolsProviderController) {
@@ -109,10 +173,11 @@ export async function toolsProvider(ctl: ToolsProviderController) {
     },
     implementation: async ({ file_name, content }) => {
       console.log("write_file tool called with parameters:", { file_name, content });
+      const operation = "write_file";
       // Check if directory is set
       const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
       if (!folderName) {
-        return "Error: Directory not set. Use set_directory first.";
+        return toErrorResponse(operation, "DIR_NOT_SET", "Directory not set. Use set_directory first.");
       }
 
       // Validate that the file path is within the configured directory
@@ -121,9 +186,11 @@ export async function toolsProvider(ctl: ToolsProviderController) {
       // Security check: ensure the path is within the configured directory
       // Allow paths with "/" in filenames (subdirectories) but prevent traversal outside the folder
       if (!isPathWithinBaseDir(folderName, fullPath)) {
-        return "Error: File path is outside the configured directory.";
+        return toErrorResponse(operation, "FILE_PATH_OUTSIDE_BASE", "File path is outside the configured directory.");
       }
-      
+
+      const fileAlreadyExists = existsSync(fullPath);
+
       // Create directory structure if needed
       const fileDir = dirname(fullPath);
       if (!existsSync(fileDir)) {
@@ -133,7 +200,12 @@ export async function toolsProvider(ctl: ToolsProviderController) {
       // Write file (creates or overwrites)
       await writeFile(fullPath, content, "utf-8");
       
-      return "File created or updated successfully";
+      return toSuccessResponse(operation, {
+        file_name: basename(file_name),
+        relative_path: normalizeRelativePath(file_name),
+        created: !fileAlreadyExists,
+        updated: fileAlreadyExists,
+      });
     },
   });
   tools.push(writeFileTool);
@@ -151,10 +223,11 @@ export async function toolsProvider(ctl: ToolsProviderController) {
     },
     implementation: async ({ file_name }) => {
       console.log("read_file tool called with parameters:", { file_name });
+      const operation = "read_file";
       // Check if directory is set
       const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
       if (!folderName) {
-        return "Error: Directory not set. Use set_directory first.";
+        return toErrorResponse(operation, "DIR_NOT_SET", "Directory not set. Use set_directory first.");
       }
       
       // Validate that the file path is within the configured directory
@@ -162,7 +235,7 @@ export async function toolsProvider(ctl: ToolsProviderController) {
 
       // Security check: ensure the path is within the configured directory
       if (!isPathWithinBaseDir(folderName, fullPath)) {
-        return "Error: File path is outside the configured directory.";
+        return toErrorResponse(operation, "FILE_PATH_OUTSIDE_BASE", "File path is outside the configured directory.");
       }
 
       // Build file path
@@ -170,11 +243,16 @@ export async function toolsProvider(ctl: ToolsProviderController) {
       
       // Check if file exists
       if (!existsSync(filePath)) {
-        return "Error: File does not exist";
+        return toErrorResponse(operation, "FILE_NOT_FOUND", "File does not exist");
       }
       
       // Read and return content
-      return await readFile(filePath, "utf-8");
+      const content = await readFile(filePath, "utf-8");
+      return toSuccessResponse(operation, {
+        file_name: basename(file_name),
+        relative_path: normalizeRelativePath(file_name),
+        content,
+      });
     },
   });
   tools.push(readFileTool);
@@ -187,20 +265,20 @@ export async function toolsProvider(ctl: ToolsProviderController) {
     parameters: {},
     implementation: async () => {
       console.log("list_files tool called");
+      const operation = "list_files";
       // Check if directory is set
       const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
       if (!folderName || !existsSync(folderName)) {
-        return "Error: Directory not set or does not exist";
+        return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
       }
 
       // Get file list
-      const files = await readdir(folderName);
+      const files = (await readdir(folderName)).sort((a, b) => a.localeCompare(b));
 
-      if (files.length === 0) {
-        return "Directory is empty";
-      }
-      
-      return `Files found:\n${files.map(f => `- ${f}`).join("\n")}`;
+      return toSuccessResponse(operation, {
+        count: files.length,
+        files,
+      });
     },
   });
   tools.push(listFilesTool);
@@ -218,37 +296,87 @@ export async function toolsProvider(ctl: ToolsProviderController) {
     },
     implementation: async ({ file_name }) => {
       console.log("find_file tool called with parameters:", { file_name });
+      const operation = "find_file";
 
       const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
       if (!folderName || !existsSync(folderName)) {
-        return "Error: Directory not set or does not exist";
+        return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
       }
 
       const allFiles = (await collectRelativeFilesRecursive(folderName)).sort((a, b) => a.localeCompare(b));
 
       if (allFiles.length === 0) {
-        return "Directory is empty";
+        return toSuccessResponse(operation, {
+          query: file_name,
+          match_type: "none",
+          count: 0,
+          matches: [],
+        });
       }
 
       const normalizedQuery = basename(file_name).toLowerCase();
       const exactMatches = allFiles.filter((path) => basename(path).toLowerCase() === normalizedQuery);
 
       if (exactMatches.length > 0) {
-        return `Exact filename matches:\n${formatMatches(exactMatches)}`;
+        const matches: SearchMatch[] = exactMatches
+          .map((path) => ({
+            file_name: basename(path),
+            relative_path: path,
+            score: 1,
+          }))
+          .sort((a, b) => a.relative_path.localeCompare(b.relative_path));
+
+        return toSuccessResponse(operation, {
+          query: file_name,
+          match_type: "exact",
+          count: matches.length,
+          matches,
+        });
       }
 
-      const laxRegex = buildLaxSearchRegex(file_name);
-      const laxMatches = allFiles.filter((path) => {
-        const fileBaseName = basename(path);
-        return laxRegex.test(fileBaseName);
-      });
+      const tokens = tokenizeSearchQuery(file_name);
+      const laxRegex = buildLaxSearchRegex(tokens);
+      const laxMatches: SearchMatch[] = allFiles
+        .map((path) => {
+          const fileBaseName = basename(path);
+          if (!laxRegex.test(fileBaseName)) {
+            return null;
+          }
 
+          const score = scoreLaxMatch(fileBaseName, tokens);
+          if (score <= 0) {
+            return null;
+          }
+
+          return {
+            file_name: fileBaseName,
+            relative_path: path,
+            score,
+          };
+        })
+        .filter((match): match is SearchMatch => match !== null)
+        .sort((a, b) => {
+          if (b.score !== a.score) {
+            return b.score - a.score;
+          }
+          return a.relative_path.localeCompare(b.relative_path);
+        });
 
       if (laxMatches.length === 0) {
-        return `No files found matching '${file_name}'.`;
+        return toSuccessResponse(operation, {
+          query: file_name,
+          match_type: "none",
+          count: 0,
+          matches: [],
+        });
       }
 
-      return `No exact filename matches found. Similar matches:\n${formatMatches(laxMatches)}`;
+      return toSuccessResponse(operation, {
+        query: file_name,
+        match_type: "lax",
+        count: laxMatches.length,
+        matches: laxMatches,
+      });
     },
   });
   tools.push(findFileTool);
@@ -266,10 +394,11 @@ export async function toolsProvider(ctl: ToolsProviderController) {
     },
     implementation: async ({ directory_name }) => {
       console.log("create_directory tool called with parameters:", { directory_name });
+      const operation = "create_directory";
       // Check if directory is set
       const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
       if (!folderName) {
-        return "Error: Directory not set. Use set_directory first.";
+        return toErrorResponse(operation, "DIR_NOT_SET", "Directory not set. Use set_directory first.");
       }
       
       // Validate that the directory path is within the configured directory
@@ -277,13 +406,19 @@ export async function toolsProvider(ctl: ToolsProviderController) {
 
       // Security check: ensure the path is within the configured directory
       if (!isPathWithinBaseDir(folderName, fullPath)) {
-        return "Error: Directory path is outside the configured directory.";
+        return toErrorResponse(operation, "DIRECTORY_PATH_OUTSIDE_BASE", "Directory path is outside the configured directory.");
       }
-      
+
+      const directoryAlreadyExists = existsSync(fullPath);
+
       // Create directory
       await mkdir(fullPath, { recursive: true });
       
-      return `Directory '${directory_name}' created successfully`;
+      return toSuccessResponse(operation, {
+        directory_name: basename(directory_name),
+        relative_path: normalizeRelativePath(directory_name),
+        created: !directoryAlreadyExists,
+      });
     },
   });
   tools.push(createDirectoryTool);
