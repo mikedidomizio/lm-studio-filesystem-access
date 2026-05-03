@@ -1,5 +1,5 @@
 import { tool, Tool, ToolsProviderController } from "@lmstudio/sdk";
-import { existsSync, statSync } from "fs";
+import { existsSync } from "fs";
 import { mkdir, readFile, readdir, writeFile } from "fs/promises";
 import { join, basename, dirname, resolve, sep } from "path";
 import { z } from "zod";
@@ -37,6 +37,61 @@ function isPathWithinBaseDir(baseDir: string, targetPath: string): boolean {
   return true;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildLaxSearchRegex(query: string): RegExp {
+  const tokens = query
+    .trim()
+    .split(/[\s._-]+/)
+    .filter((token) => token.length > 0)
+    .map((token) => escapeRegExp(token));
+
+  if (tokens.length === 0) {
+    return /^$/;
+  }
+
+  return new RegExp(tokens.join(".*"), "i");
+}
+
+async function collectRelativeFilesRecursive(baseDir: string, currentDir = ""): Promise<string[]> {
+  const absoluteDir = currentDir ? join(baseDir, currentDir) : baseDir;
+  const entries = await readdir(absoluteDir, { withFileTypes: true });
+  const files: string[] = [];
+
+  for (const entry of entries) {
+    const relativePath = currentDir ? join(currentDir, entry.name) : entry.name;
+    const absolutePath = join(baseDir, relativePath);
+
+    if (!isPathWithinBaseDir(baseDir, absolutePath)) {
+      continue;
+    }
+
+    if (entry.isDirectory()) {
+      files.push(...(await collectRelativeFilesRecursive(baseDir, relativePath)));
+      continue;
+    }
+
+    if (entry.isFile()) {
+      files.push(relativePath.split(sep).join("/"));
+    }
+  }
+
+  return files;
+}
+
+function formatMatches(matches: string[]): string {
+  if (matches.length === 1) {
+    const [path] = matches;
+    return `File found:\n- file_name: ${basename(path)} | relative_path: ${path}`;
+  }
+
+  return `Files found (${matches.length}):\n${matches
+    .map((path) => `- file_name: ${basename(path)} | relative_path: ${path}`)
+    .join("\n")}`;
+}
+
 export async function toolsProvider(ctl: ToolsProviderController) {
   const tools: Tool[] = [];
 
@@ -46,7 +101,10 @@ export async function toolsProvider(ctl: ToolsProviderController) {
     name: `write_file`,
     description: "Write or update a file with the given name and content. Creates the file if it doesn't exist. Supports subdirectories.",
     parameters: {
-      file_name: z.string().min(1, "File name cannot be empty").regex(/^[\w./-]+$/, "File name can only contain letters, numbers, underscores, hyphens, dots, and forward slashes"),
+      file_name: z
+        .string()
+        .min(1, "File name cannot be empty")
+        .refine((value) => value.trim().length > 0, "File name cannot be empty"),
       content: z.string()
     },
     implementation: async ({ file_name, content }) => {
@@ -86,7 +144,10 @@ export async function toolsProvider(ctl: ToolsProviderController) {
     name: `read_file`,
     description: "Read the content of a file from the configured directory.",
     parameters: {
-      file_name: z.string().min(1, "File name cannot be empty").regex(/^[\w./-]+$/, "File name can only contain letters, numbers, underscores, hyphens, dots, and forward slashes")
+      file_name: z
+        .string()
+        .min(1, "File name cannot be empty")
+        .refine((value) => value.trim().length > 0, "File name cannot be empty")
     },
     implementation: async ({ file_name }) => {
       console.log("read_file tool called with parameters:", { file_name });
@@ -144,13 +205,64 @@ export async function toolsProvider(ctl: ToolsProviderController) {
   });
   tools.push(listFilesTool);
 
+  // === FIND FILE TOOL ===
+  // Recursively finds files by exact filename first, then a lax pattern fallback.
+  const findFileTool = tool({
+    name: `find_file`,
+    description: "Recursively search for files in the configured directory. Tries exact filename first, then a lax match if nothing is found.",
+    parameters: {
+      file_name: z
+        .string()
+        .min(1, "File name cannot be empty")
+        .refine((value) => value.trim().length > 0, "File name cannot be empty"),
+    },
+    implementation: async ({ file_name }) => {
+      console.log("find_file tool called with parameters:", { file_name });
+
+      const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
+      if (!folderName || !existsSync(folderName)) {
+        return "Error: Directory not set or does not exist";
+      }
+
+      const allFiles = (await collectRelativeFilesRecursive(folderName)).sort((a, b) => a.localeCompare(b));
+
+      if (allFiles.length === 0) {
+        return "Directory is empty";
+      }
+
+      const normalizedQuery = basename(file_name).toLowerCase();
+      const exactMatches = allFiles.filter((path) => basename(path).toLowerCase() === normalizedQuery);
+
+      if (exactMatches.length > 0) {
+        return `Exact filename matches:\n${formatMatches(exactMatches)}`;
+      }
+
+      const laxRegex = buildLaxSearchRegex(file_name);
+      const laxMatches = allFiles.filter((path) => {
+        const fileBaseName = basename(path);
+        return laxRegex.test(fileBaseName);
+      });
+
+
+      if (laxMatches.length === 0) {
+        return `No files found matching '${file_name}'.`;
+      }
+
+      return `No exact filename matches found. Similar matches:\n${formatMatches(laxMatches)}`;
+    },
+  });
+  tools.push(findFileTool);
+
   // === CREATE DIRECTORY TOOL ===
   // Creates a subdirectory within the configured directory
   const createDirectoryTool = tool({
     name: `create_directory`,
     description: "Create a new subdirectory within the configured directory.",
     parameters: {
-      directory_name: z.string().min(1, "Directory name cannot be empty").regex(/^[\w./-]+$/, "Directory name can only contain letters, numbers, underscores, hyphens, dots, and forward slashes")
+      directory_name: z
+        .string()
+        .min(1, "Directory name cannot be empty")
+        .refine((value) => value.trim().length > 0, "Directory name cannot be empty")
     },
     implementation: async ({ directory_name }) => {
       console.log("create_directory tool called with parameters:", { directory_name });
