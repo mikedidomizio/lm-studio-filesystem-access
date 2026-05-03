@@ -344,6 +344,120 @@ describe("toolsProvider", () => {
     });
   });
 
+  it("moves a directory to a new path", async () => {
+    const writeTool = await getTool(baseDir, "write_file");
+    const moveDirectoryTool = await getTool(baseDir, "move_directory");
+
+    await writeTool.implementation({ file_name: "docs/source/readme.md", content: "hello" });
+
+    const raw = await moveDirectoryTool.implementation({
+      source_path: "docs/source",
+      destination_path: "docs/archive/source",
+    });
+    const result = parseResponse<{ source_path: string; destination_path: string; overwritten: boolean }>(raw);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.operation).toBe("move_directory");
+      expect(result.data).toEqual({
+        source_path: "docs/source",
+        destination_path: "docs/archive/source",
+        overwritten: false,
+      });
+    }
+
+    expect(existsSync(join(baseDir, "docs/source"))).toBe(false);
+    expect(await readFile(join(baseDir, "docs/archive/source/readme.md"), "utf-8")).toBe("hello");
+  });
+
+  it("returns an error when move_directory destination exists and overwrite is false", async () => {
+    const createDirectoryTool = await getTool(baseDir, "create_directory");
+    const moveDirectoryTool = await getTool(baseDir, "move_directory");
+
+    await createDirectoryTool.implementation({ directory_name: "a/src" });
+    await createDirectoryTool.implementation({ directory_name: "a/dst" });
+
+    const raw = await moveDirectoryTool.implementation({
+      source_path: "a/src",
+      destination_path: "a/dst",
+    });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "move_directory",
+      error: {
+        code: "DESTINATION_EXISTS",
+        message: "Destination directory already exists",
+      },
+    });
+  });
+
+  it("overwrites destination when move_directory overwrite is true", async () => {
+    const writeTool = await getTool(baseDir, "write_file");
+    const moveDirectoryTool = await getTool(baseDir, "move_directory");
+
+    await writeTool.implementation({ file_name: "a/src/new.txt", content: "new" });
+    await writeTool.implementation({ file_name: "a/dst/old.txt", content: "old" });
+
+    const raw = await moveDirectoryTool.implementation({
+      source_path: "a/src",
+      destination_path: "a/dst",
+      overwrite: true,
+    });
+    const result = parseResponse<{ overwritten: boolean }>(raw);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.overwritten).toBe(true);
+    }
+
+    expect(existsSync(join(baseDir, "a/src"))).toBe(false);
+    expect(await readFile(join(baseDir, "a/dst/new.txt"), "utf-8")).toBe("new");
+    expect(existsSync(join(baseDir, "a/dst/old.txt"))).toBe(false);
+  });
+
+  it("blocks move_directory when destination is inside source", async () => {
+    const createDirectoryTool = await getTool(baseDir, "create_directory");
+    const moveDirectoryTool = await getTool(baseDir, "move_directory");
+
+    await createDirectoryTool.implementation({ directory_name: "root/child" });
+
+    const raw = await moveDirectoryTool.implementation({
+      source_path: "root",
+      destination_path: "root/child/new-root",
+    });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "move_directory",
+      error: {
+        code: "DESTINATION_INSIDE_SOURCE",
+        message: "Destination cannot be inside the source directory.",
+      },
+    });
+  });
+
+  it("blocks move_directory when source path escapes the selected folder", async () => {
+    const moveDirectoryTool = await getTool(baseDir, "move_directory");
+
+    const raw = await moveDirectoryTool.implementation({
+      source_path: "../outside-dir",
+      destination_path: "inside-dir",
+    });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "move_directory",
+      error: {
+        code: "SOURCE_PATH_OUTSIDE_BASE",
+        message: "Source path is outside the configured directory.",
+      },
+    });
+  });
+
   it("deletes a file in the selected folder", async () => {
     const writeTool = await getTool(baseDir, "write_file");
     const deleteFileTool = await getTool(baseDir, "delete_file");

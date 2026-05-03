@@ -9,6 +9,7 @@ Allows filesystem access for the following actions:
 - find_file
 - move_file
 - delete_file
+- move_directory
 
 ## JSON Response Contract
 
@@ -59,6 +60,19 @@ Current error codes include:
 - `CROSS_DEVICE_MOVE_UNSUPPORTED`
 - `MOVE_FAILED`
 
+`move_directory` can also return:
+
+- `SOURCE_PATH_OUTSIDE_BASE`
+- `DESTINATION_PATH_OUTSIDE_BASE`
+- `SOURCE_EQUALS_DESTINATION`
+- `DESTINATION_INSIDE_SOURCE`
+- `SOURCE_DIRECTORY_NOT_FOUND`
+- `SOURCE_NOT_DIRECTORY`
+- `DESTINATION_NOT_DIRECTORY`
+- `DESTINATION_EXISTS`
+- `CROSS_DEVICE_MOVE_UNSUPPORTED`
+- `MOVE_FAILED`
+
 ## File Move Behavior
 
 `move_file` moves a file from `source_path` to `destination_path` within the configured base directory.
@@ -67,6 +81,16 @@ Current error codes include:
 2. `source_path` must exist and be a file.
 3. If destination exists and `overwrite` is not `true`, the tool returns `DESTINATION_EXISTS`.
 4. If needed, parent directories for `destination_path` are created automatically.
+
+## Directory Move Behavior
+
+`move_directory` moves a directory from `source_path` to `destination_path` within the configured base directory.
+
+1. Both paths must resolve inside the configured base directory.
+2. `source_path` must exist and be a directory.
+3. Destination cannot be the same as source, and cannot be nested inside source.
+4. If destination exists and `overwrite` is not `true`, the tool returns `DESTINATION_EXISTS`.
+5. If needed, parent directories for `destination_path` are created automatically.
 
 ## File Delete Behavior
 
