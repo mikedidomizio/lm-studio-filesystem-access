@@ -1,19 +1,21 @@
 # LM Studio Tool Plugin - Filesystem Access
 
+Source code (git): https://github.com/mikedidomizio/lm-studio-filesystem-access
+
 Allows filesystem access for the following actions:
 
-- list_files
-- create_directory
 - write_file
 - read_file
-- find_file
-- move_file
 - delete_file
-- move_directory
-- delete_directory
 - copy_file
+- move_file
+- create_directory
+- delete_directory
 - copy_directory
+- move_directory
+- list_files
 - path_exists
+- find_file
 
 ## JSON Response Contract
 
