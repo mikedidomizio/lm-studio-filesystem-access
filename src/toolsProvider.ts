@@ -381,6 +381,51 @@ export async function toolsProvider(ctl: ToolsProviderController) {
   });
   tools.push(findFileTool);
 
+  // === DELETE FILE TOOL ===
+  // Deletes a file within the configured directory.
+  const deleteFileTool = tool({
+    name: `delete_file`,
+    description: "Delete a file from the configured directory.",
+    parameters: {
+      file_name: z
+        .string()
+        .min(1, "File name cannot be empty")
+        .refine((value) => value.trim().length > 0, "File name cannot be empty"),
+    },
+    implementation: async ({ file_name }) => {
+      console.log("delete_file tool called with parameters:", { file_name });
+      const operation = "delete_file";
+      const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
+
+      if (!folderName || !existsSync(folderName)) {
+        return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
+      }
+
+      const fullPath = join(folderName, file_name);
+      if (!isPathWithinBaseDir(folderName, fullPath)) {
+        return toErrorResponse(operation, "FILE_PATH_OUTSIDE_BASE", "File path is outside the configured directory.");
+      }
+
+      if (!existsSync(fullPath)) {
+        return toErrorResponse(operation, "FILE_NOT_FOUND", "File does not exist");
+      }
+
+      const fileStats = await stat(fullPath);
+      if (!fileStats.isFile()) {
+        return toErrorResponse(operation, "FILE_NOT_FILE", "Path is not a file");
+      }
+
+      await unlink(fullPath);
+
+      return toSuccessResponse(operation, {
+        file_name: basename(file_name),
+        relative_path: normalizeRelativePath(file_name),
+        deleted: true,
+      });
+    },
+  });
+  tools.push(deleteFileTool);
+
   // === MOVE FILE TOOL ===
   // Moves a file within the configured directory.
   const moveFileTool = tool({

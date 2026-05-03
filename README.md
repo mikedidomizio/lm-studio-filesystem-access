@@ -8,6 +8,7 @@ Allows filesystem access for the following actions:
 - read_file
 - find_file
 - move_file
+- delete_file
 
 ## JSON Response Contract
 
@@ -44,6 +45,7 @@ Current error codes include:
 - `FILE_PATH_OUTSIDE_BASE`
 - `DIRECTORY_PATH_OUTSIDE_BASE`
 - `FILE_NOT_FOUND`
+- `FILE_NOT_FILE`
 
 `move_file` can also return:
 
@@ -65,6 +67,14 @@ Current error codes include:
 2. `source_path` must exist and be a file.
 3. If destination exists and `overwrite` is not `true`, the tool returns `DESTINATION_EXISTS`.
 4. If needed, parent directories for `destination_path` are created automatically.
+
+## File Delete Behavior
+
+`delete_file` deletes a single file at `file_name` within the configured base directory.
+
+1. The resolved path must stay inside the configured base directory.
+2. The target must exist and be a file (not a directory).
+3. On success, the tool returns `deleted: true` with `file_name` and `relative_path`.
 
 ## File Search Behavior
 

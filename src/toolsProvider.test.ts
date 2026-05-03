@@ -344,6 +344,78 @@ describe("toolsProvider", () => {
     });
   });
 
+  it("deletes a file in the selected folder", async () => {
+    const writeTool = await getTool(baseDir, "write_file");
+    const deleteFileTool = await getTool(baseDir, "delete_file");
+
+    await writeTool.implementation({ file_name: "trash/me.txt", content: "bye" });
+
+    const raw = await deleteFileTool.implementation({ file_name: "trash/me.txt" });
+    const result = parseResponse<{ file_name: string; relative_path: string; deleted: boolean }>(raw);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.operation).toBe("delete_file");
+      expect(result.data).toEqual({
+        file_name: "me.txt",
+        relative_path: "trash/me.txt",
+        deleted: true,
+      });
+    }
+    expect(existsSync(join(baseDir, "trash/me.txt"))).toBe(false);
+  });
+
+  it("returns an error when delete_file does not exist", async () => {
+    const deleteFileTool = await getTool(baseDir, "delete_file");
+
+    const raw = await deleteFileTool.implementation({ file_name: "missing.txt" });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "delete_file",
+      error: {
+        code: "FILE_NOT_FOUND",
+        message: "File does not exist",
+      },
+    });
+  });
+
+  it("blocks delete_file when file path escapes the selected folder", async () => {
+    const deleteFileTool = await getTool(baseDir, "delete_file");
+
+    const raw = await deleteFileTool.implementation({ file_name: "../outside.txt" });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "delete_file",
+      error: {
+        code: "FILE_PATH_OUTSIDE_BASE",
+        message: "File path is outside the configured directory.",
+      },
+    });
+  });
+
+  it("returns an error when delete_file path points to a directory", async () => {
+    const createDirectoryTool = await getTool(baseDir, "create_directory");
+    const deleteFileTool = await getTool(baseDir, "delete_file");
+
+    await createDirectoryTool.implementation({ directory_name: "trash-dir" });
+
+    const raw = await deleteFileTool.implementation({ file_name: "trash-dir" });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "delete_file",
+      error: {
+        code: "FILE_NOT_FILE",
+        message: "Path is not a file",
+      },
+    });
+  });
+
   it("finds a file by exact name recursively and returns a relative path", async () => {
     const writeTool = await getTool(baseDir, "write_file");
     const findFileTool = await getTool(baseDir, "find_file");
