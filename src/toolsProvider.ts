@@ -781,13 +781,15 @@ export async function toolsProvider(ctl: ToolsProviderController) {
   tools.push(moveDirectoryTool);
 
   // === LIST FILES TOOL ===
-  // Lists all files in the configured directory
+  // Lists all files in the configured directory, optionally recursively
   const listFilesTool = tool({
     name: `list_files`,
-    description: "List all files in the configured directory.",
-    parameters: {},
-    implementation: async () => {
-      console.log("list_files tool called");
+    description: "List files in the configured directory. Set recursive to true (default) to include files in all subdirectories; set to false for a shallow listing of the root directory only. Returns relative paths.",
+    parameters: {
+      recursive: z.boolean().optional(),
+    },
+    implementation: async ({ recursive = true }) => {
+      console.log("list_files tool called with parameters:", { recursive });
       const operation = "list_files";
       // Check if directory is set
       const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
@@ -796,10 +798,21 @@ export async function toolsProvider(ctl: ToolsProviderController) {
       }
 
       try {
-        // Get file list
-        const files = (await readdir(folderName)).sort((a, b) => a.localeCompare(b));
+        let files: string[];
+        if (recursive) {
+          // Get file list recursively
+          files = (await collectRelativeFilesRecursive(folderName)).sort((a, b) => a.localeCompare(b));
+        } else {
+          // Get shallow file list (root only)
+          const entries = await readdir(folderName, { withFileTypes: true });
+          files = entries
+            .filter((entry) => entry.isFile())
+            .map((entry) => entry.name)
+            .sort((a, b) => a.localeCompare(b));
+        }
         return toSuccessResponse(operation, {
           count: files.length,
+          recursive,
           files,
         });
       } catch {
