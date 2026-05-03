@@ -13,6 +13,7 @@ Allows filesystem access for the following actions:
 - delete_directory
 - copy_file
 - copy_directory
+- path_exists
 
 ## JSON Response Contract
 
@@ -54,6 +55,11 @@ Current error codes include:
 - `DIRECTORY_NOT_DIRECTORY`
 - `DIRECTORY_NOT_EMPTY`
 - `DELETE_FAILED`
+- `PATH_OUTSIDE_BASE`
+
+`path_exists` can also return:
+
+- `PATH_OUTSIDE_BASE`
 
 `move_file` can also return:
 
@@ -197,6 +203,14 @@ Example `find_file` success payload:
 
 `write_file`, `read_file`, `find_file`, and `create_directory` accept names with spaces and common path characters.
 Path safety is enforced by keeping all resolved paths inside the configured base directory.
+
+## Path Exists Behavior
+
+`path_exists` checks whether a path exists inside the configured base directory.
+
+1. If the path exists, it returns `exists: true` and `path_type` as `file` or `directory`.
+2. If the path does not exist, it returns `ok: true` with `exists: false` and `path_type: "missing"`.
+3. If the path resolves outside the configured base directory, it returns `PATH_OUTSIDE_BASE`.
 
 ## Testing
 

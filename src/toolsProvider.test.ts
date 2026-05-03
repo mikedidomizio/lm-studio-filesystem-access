@@ -229,6 +229,93 @@ describe("toolsProvider", () => {
     }
   });
 
+  it("reports an existing file with path_exists", async () => {
+    const writeTool = await getTool(baseDir, "write_file");
+    const pathExistsTool = await getTool(baseDir, "path_exists");
+
+    await writeTool.implementation({ file_name: "notes/today.txt", content: "ok" });
+
+    const raw = await pathExistsTool.implementation({ path: "notes/today.txt" });
+    const result = parseResponse<{ path: string; exists: boolean; path_type: string }>(raw);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.operation).toBe("path_exists");
+      expect(result.data).toEqual({
+        path: "notes/today.txt",
+        exists: true,
+        path_type: "file",
+      });
+    }
+  });
+
+  it("reports an existing directory with path_exists", async () => {
+    const createDirectoryTool = await getTool(baseDir, "create_directory");
+    const pathExistsTool = await getTool(baseDir, "path_exists");
+
+    await createDirectoryTool.implementation({ directory_name: "notes/archive" });
+
+    const raw = await pathExistsTool.implementation({ path: "notes/archive" });
+    const result = parseResponse<{ path: string; exists: boolean; path_type: string }>(raw);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toEqual({
+        path: "notes/archive",
+        exists: true,
+        path_type: "directory",
+      });
+    }
+  });
+
+  it("reports missing paths as exists false with path_exists", async () => {
+    const pathExistsTool = await getTool(baseDir, "path_exists");
+
+    const raw = await pathExistsTool.implementation({ path: "missing/file.txt" });
+    const result = parseResponse<{ path: string; exists: boolean; path_type: string }>(raw);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toEqual({
+        path: "missing/file.txt",
+        exists: false,
+        path_type: "missing",
+      });
+    }
+  });
+
+  it("blocks path_exists when the path escapes the selected folder", async () => {
+    const pathExistsTool = await getTool(baseDir, "path_exists");
+
+    const raw = await pathExistsTool.implementation({ path: "../outside.txt" });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "path_exists",
+      error: {
+        code: "PATH_OUTSIDE_BASE",
+        message: "Path is outside the configured directory.",
+      },
+    });
+  });
+
+  it("returns an error when path_exists is used without a configured directory", async () => {
+    const pathExistsTool = await getTool(undefined, "path_exists");
+
+    const raw = await pathExistsTool.implementation({ path: "somewhere.txt" });
+    const result = parseResponse(raw);
+
+    expect(result).toEqual({
+      ok: false,
+      operation: "path_exists",
+      error: {
+        code: "DIR_NOT_AVAILABLE",
+        message: "Directory not set or does not exist",
+      },
+    });
+  });
+
   it("moves a file to a new path", async () => {
     const writeTool = await getTool(baseDir, "write_file");
     const moveFileTool = await getTool(baseDir, "move_file");

@@ -283,6 +283,51 @@ export async function toolsProvider(ctl: ToolsProviderController) {
   });
   tools.push(listFilesTool);
 
+  // === PATH EXISTS TOOL ===
+  // Checks whether a path exists in the configured directory.
+  const pathExistsTool = tool({
+    name: `path_exists`,
+    description: "Check whether a path exists in the configured directory.",
+    parameters: {
+      path: z
+        .string()
+        .min(1, "Path cannot be empty")
+        .refine((value) => value.trim().length > 0, "Path cannot be empty"),
+    },
+    implementation: async ({ path }) => {
+      console.log("path_exists tool called with parameters:", { path });
+      const operation = "path_exists";
+      const folderName = ctl.getPluginConfig(configSchematics).get("folderName");
+
+      if (!folderName || !existsSync(folderName)) {
+        return toErrorResponse(operation, "DIR_NOT_AVAILABLE", "Directory not set or does not exist");
+      }
+
+      const fullPath = join(folderName, path);
+      if (!isPathWithinBaseDir(folderName, fullPath)) {
+        return toErrorResponse(operation, "PATH_OUTSIDE_BASE", "Path is outside the configured directory.");
+      }
+
+      if (!existsSync(fullPath)) {
+        return toSuccessResponse(operation, {
+          path: normalizeRelativePath(path),
+          exists: false,
+          path_type: "missing",
+        });
+      }
+
+      const pathStats = await stat(fullPath);
+      const pathType = pathStats.isDirectory() ? "directory" : "file";
+
+      return toSuccessResponse(operation, {
+        path: normalizeRelativePath(path),
+        exists: true,
+        path_type: pathType,
+      });
+    },
+  });
+  tools.push(pathExistsTool);
+
   // === FIND FILE TOOL ===
   // Recursively finds files by exact filename first, then a lax pattern fallback.
   const findFileTool = tool({
