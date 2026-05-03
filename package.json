@@ -1,0 +1,19 @@
+{
+  "name": "lms-plugin-filesystem-access",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "lms dev",
+    "push": "lms push"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@lmstudio/sdk": "1.4.0",
+    "zod": "3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.8"
+  }
+}
